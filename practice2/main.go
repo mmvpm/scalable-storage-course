@@ -25,7 +25,7 @@ func gracefulShutdown(storage *Storage, router *Router, l *http.Server) {
 
 func main() {
 	mux := http.ServeMux{}
-	storage := NewStorage(&mux, "storage", []string{}, true, "../data/geo.db.json")
+	storage := NewStorage(&mux, "storage", []string{}, true, "../data/snapshot.json", "../data/wal.txt")
 	router := NewRouter(&mux, [][]string{{storage.name}}, "../front/dist")
 	server := http.Server{Addr: "127.0.0.1:8080", Handler: &mux}
 
