@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"github.com/paulmach/orb/geojson"
 	"github.com/tidwall/rtree"
 	"log/slog"
@@ -208,7 +209,7 @@ func (e *Engine) applyWAL(wal []Transaction) {
 	for _, tx := range wal {
 		ID, ok := tx.Feature.ID.(string)
 		if !ok {
-			slog.Error("Cannot parse ID from WAL for feature", tx.Feature)
+			slog.Error(fmt.Sprintf("Cannot parse ID from WAL %v", tx))
 			continue
 		}
 
@@ -223,7 +224,7 @@ func (e *Engine) applyWAL(wal []Transaction) {
 		case Delete:
 			delete(e.data, ID)
 		default:
-			slog.Warn("Unknown action in WAL", tx.Action)
+			slog.Warn(fmt.Sprintf("Unknown action in WAL %v", tx.Action))
 		}
 	}
 }
@@ -261,13 +262,13 @@ func (e *Engine) saveTransactionToWAL(tx *Transaction) error {
 
 	data, err := json.Marshal(tx)
 	if err != nil {
-		slog.Error("Failed to serialize the transaction", tx, err)
+		slog.Error(fmt.Sprintf("Failed to serialize the transaction %v", tx), err)
 		return err
 	}
 
 	_, err = file.Write(append(data, '\n'))
 	if err != nil {
-		slog.Error("Failed to save the transaction to WAL", tx, err)
+		slog.Error(fmt.Sprintf("Failed to save the transaction to WAL %v", tx), err)
 		return err
 	}
 

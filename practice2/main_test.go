@@ -9,22 +9,27 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 )
 
 func TestSimple(t *testing.T) {
 	mux := http.NewServeMux()
 
-	storage := NewStorage(mux, "test", []string{}, true, "test.json")
+	storage := NewStorage(mux, "test", []string{}, true, "test.json", "wal.txt")
 	router := NewRouter(mux, [][]string{{"test"}}, "../front/dist")
 
 	go storage.Run()
 	go router.Run()
+	time.Sleep(100 * time.Millisecond)
 
+	t.Cleanup(func() {
+		_ = os.Remove("test.json")
+		_ = os.Remove("wal.txt")
+	})
 	t.Cleanup(router.Stop)
 	t.Cleanup(storage.Stop)
-	t.Cleanup(func() { _ = os.Remove("test.json") })
 
-	feature := newFeatureWithID(orb.Point{rand.Float64(), rand.Float64()}, "a15d5061-999e-4168-9b58-7b508a2dadaf")
+	feature := newFeatureWithID(orb.Point{0.0, 0.0}, "a15d5061-999e-4168-9b58-7b508a2dadaf")
 
 	body, err := feature.MarshalJSON()
 	if err != nil {
@@ -59,15 +64,19 @@ func TestSimple(t *testing.T) {
 func TestGet(t *testing.T) {
 	mux := http.NewServeMux()
 
-	storage := NewStorage(mux, "test", []string{}, true, "test.json")
+	storage := NewStorage(mux, "test", []string{}, true, "test.json", "wal.txt")
 	router := NewRouter(mux, [][]string{{"test"}}, "../front/dist")
 
 	go storage.Run()
 	go router.Run()
+	time.Sleep(100 * time.Millisecond)
 
+	t.Cleanup(func() {
+		_ = os.Remove("test.json")
+		_ = os.Remove("wal.txt")
+	})
 	t.Cleanup(router.Stop)
 	t.Cleanup(storage.Stop)
-	t.Cleanup(func() { _ = os.Remove("test.json") })
 
 	rr := httptest.NewRecorder()
 
@@ -102,15 +111,19 @@ func TestGet(t *testing.T) {
 func TestInsert(t *testing.T) {
 	mux := http.NewServeMux()
 
-	storage := NewStorage(mux, "test", []string{}, true, "test.json")
+	storage := NewStorage(mux, "test", []string{}, true, "test.json", "wal.txt")
 	router := NewRouter(mux, [][]string{{"test"}}, "../front/dist")
 
 	go storage.Run()
 	go router.Run()
+	time.Sleep(100 * time.Millisecond)
 
+	t.Cleanup(func() {
+		_ = os.Remove("test.json")
+		_ = os.Remove("wal.txt")
+	})
 	t.Cleanup(router.Stop)
 	t.Cleanup(storage.Stop)
-	t.Cleanup(func() { _ = os.Remove("test.json") })
 
 	tests := []struct {
 		name     string
@@ -171,15 +184,19 @@ func TestInsert(t *testing.T) {
 func TestReplace(t *testing.T) {
 	mux := http.NewServeMux()
 
-	storage := NewStorage(mux, "test", []string{}, true, "test.json")
+	storage := NewStorage(mux, "test", []string{}, true, "test.json", "wal.txt")
 	router := NewRouter(mux, [][]string{{"test"}}, "../front/dist")
 
 	go storage.Run()
 	go router.Run()
+	time.Sleep(100 * time.Millisecond)
 
+	t.Cleanup(func() {
+		_ = os.Remove("test.json")
+		_ = os.Remove("wal.txt")
+	})
 	t.Cleanup(router.Stop)
 	t.Cleanup(storage.Stop)
-	t.Cleanup(func() { _ = os.Remove("test.json") })
 
 	tests := []struct {
 		name     string
@@ -245,15 +262,19 @@ func TestReplace(t *testing.T) {
 func TestDelete(t *testing.T) {
 	mux := http.NewServeMux()
 
-	storage := NewStorage(mux, "test", []string{}, true, "test.json")
+	storage := NewStorage(mux, "test", []string{}, true, "test.json", "wal.txt")
 	router := NewRouter(mux, [][]string{{"test"}}, "../front/dist")
 
 	go storage.Run()
 	go router.Run()
+	time.Sleep(100 * time.Millisecond)
 
+	t.Cleanup(func() {
+		_ = os.Remove("test.json")
+		_ = os.Remove("wal.txt")
+	})
 	t.Cleanup(router.Stop)
 	t.Cleanup(storage.Stop)
-	t.Cleanup(func() { _ = os.Remove("test.json") })
 
 	tests := []struct {
 		name     string
