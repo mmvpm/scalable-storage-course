@@ -5,29 +5,38 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/gorilla/websocket"
 	"github.com/paulmach/orb/geojson"
 	"github.com/tidwall/rtree"
 	"log/slog"
+	"net/url"
 	"os"
+	"path/filepath"
+	"sort"
 )
 
 type Engine struct {
 	name         string
-	data         map[string]*geojson.Feature
+	replicas     []string
+	connections  *ReplicaRegistry
+	data         map[string]*Feature
 	rTree        *rtree.RTreeG[string]
-	lsn          uint64
+	vclock       map[string]uint64
 	commands     chan Command
 	ctx          context.Context
 	snapshotFile string
 	walFile      string
 }
 
-func NewEngine(name string, ctx context.Context, snapshotFile string, walFile string) *Engine {
+func NewEngine(name string, replicas []string, ctx context.Context, snapshotFile string, walFile string) *Engine {
 	var rTree rtree.RTreeG[string]
 	return &Engine{
 		name:         name,
-		data:         make(map[string]*geojson.Feature),
+		replicas:     replicas,
+		connections:  NewReplicaRegistry(name),
+		data:         make(map[string]*Feature),
 		rTree:        &rTree,
+		vclock:       make(map[string]uint64),
 		commands:     make(chan Command),
 		ctx:          ctx,
 		snapshotFile: snapshotFile,
@@ -37,9 +46,13 @@ func NewEngine(name string, ctx context.Context, snapshotFile string, walFile st
 
 func (e *Engine) Start() {
 	_ = e.loadSnapshot()
+	e.restoreRTree()
+
 	wal, _ := e.loadWAL()
 	e.applyWAL(wal)
-	e.restoreRTree()
+
+	e.connectToReplicas()
+	e.broadcastAllData()
 
 	for {
 		select {
@@ -73,13 +86,16 @@ func (e *Engine) Exists(ID string) bool {
 }
 
 func (e *Engine) ApplyTransaction(action ActionType, feature *geojson.Feature) error {
-	e.lsn += 1
 	tx := &Transaction{
 		Action:  action,
 		Name:    e.name,
-		Lsn:     e.lsn,
+		Lsn:     e.vclock[e.name] + 1,
 		Feature: feature,
 	}
+	return e.ApplyTransactionRaw(tx)
+}
+
+func (e *Engine) ApplyTransactionRaw(tx *Transaction) error {
 	errors := make(chan error)
 	e.commands <- &ApplyCommand{tx, errors}
 	return <-errors
@@ -94,7 +110,11 @@ func (e *Engine) MakeSnapshot() error {
 // commands implementations
 
 func (e *Engine) getAllData() map[string]*geojson.Feature {
-	return e.data
+	result := make(map[string]*geojson.Feature, len(e.data))
+	for _, feature := range e.data {
+		result[feature.Feature.ID.(string)] = feature.Feature
+	}
+	return result
 }
 
 func (e *Engine) getData(coordinates [4]float64) map[string]*geojson.Feature {
@@ -109,23 +129,40 @@ func (e *Engine) getData(coordinates [4]float64) map[string]*geojson.Feature {
 
 	result := make(map[string]*geojson.Feature, len(featureIDs))
 	for _, ID := range featureIDs {
-		result[ID] = e.data[ID]
+		result[ID] = e.data[ID].Feature
 	}
 
 	return result
 }
 
-func (e *Engine) applyTransaction(tx *Transaction) error {
+func (e *Engine) applyTransactionAndSave(tx *Transaction) error {
+	applied, err := e.applyTransaction(tx)
+	if err != nil || !applied {
+		return err
+	}
+	if err := e.saveTransactionToWAL(tx); err != nil {
+		return err
+	}
+	e.connections.Broadcast(tx)
+	return nil
+}
+
+func (e *Engine) applyTransaction(tx *Transaction) (bool, error) {
+	if tx.Lsn <= e.vclock[tx.Name] {
+		return false, nil // tx is already applied
+	}
+	e.vclock[tx.Name] = tx.Lsn
+
 	ID := tx.Feature.ID.(string)
 	switch tx.Action {
 	case Upsert:
-		e.data[ID] = tx.Feature
+		e.data[ID] = &Feature{tx.Name, tx.Lsn, tx.Feature}
 		e.updateRTree(tx.Feature)
 	case Delete:
 		delete(e.data, ID)
 		e.deleteFromRTree(tx.Feature)
 	}
-	return e.saveTransactionToWAL(tx) // blocking
+	return true, nil
 }
 
 func computeBoundsForRTree(feature *geojson.Feature) ([2]float64, [2]float64) {
@@ -151,6 +188,35 @@ func (e *Engine) makeSnapshot() error {
 		return err
 	}
 	return e.clearWAL()
+}
+
+// replication
+
+func (e *Engine) connectToReplicas() {
+	for _, replica := range e.replicas {
+		u := url.URL{Scheme: "ws", Host: "127.0.0.1:8080", Path: "/" + replica + "/replication", RawQuery: "name=" + e.name}
+		conn, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
+		if err != nil {
+			slog.Error("Dial error to "+replica, err)
+			continue
+		}
+		e.connections.Add(replica, conn)
+	}
+}
+
+func (e *Engine) broadcastAllData() {
+	txs := make([]*Transaction, 0)
+	for _, feature := range e.data {
+		txs = append(txs, &Transaction{Upsert, feature.Name, feature.LSN, feature.Feature})
+	}
+
+	sort.Slice(txs, func(i, j int) bool {
+		return txs[i].Lsn < txs[j].Lsn
+	})
+
+	for _, tx := range txs {
+		e.connections.Broadcast(tx)
+	}
 }
 
 // utils for load data
@@ -207,31 +273,13 @@ func (e *Engine) loadWAL() ([]Transaction, error) {
 
 func (e *Engine) applyWAL(wal []Transaction) {
 	for _, tx := range wal {
-		ID, ok := tx.Feature.ID.(string)
-		if !ok {
-			slog.Error(fmt.Sprintf("Cannot parse ID from WAL %v", tx))
-			continue
-		}
-
-		if tx.Lsn < e.lsn {
-			continue // tx is already applied
-		}
-		e.lsn = tx.Lsn
-
-		switch tx.Action {
-		case Upsert:
-			e.data[ID] = tx.Feature
-		case Delete:
-			delete(e.data, ID)
-		default:
-			slog.Warn(fmt.Sprintf("Unknown action in WAL %v", tx.Action))
-		}
+		_, _ = e.applyTransaction(&tx)
 	}
 }
 
 func (e *Engine) restoreRTree() {
 	for _, feature := range e.data {
-		e.updateRTree(feature)
+		e.updateRTree(feature.Feature)
 	}
 }
 
@@ -244,6 +292,11 @@ func (e *Engine) saveSnapshot() error {
 		return err
 	}
 
+	if _, err := os.Stat(e.snapshotFile); os.IsNotExist(err) {
+		_ = os.MkdirAll(filepath.Dir(e.snapshotFile), os.ModePerm)
+		_, _ = os.Create(e.snapshotFile)
+	}
+
 	if err = os.WriteFile(e.snapshotFile, data, 0666); err != nil {
 		slog.Error("Failed to write data to snapshot", err)
 		return err
@@ -253,7 +306,12 @@ func (e *Engine) saveSnapshot() error {
 }
 
 func (e *Engine) saveTransactionToWAL(tx *Transaction) error {
-	file, err := os.OpenFile(e.walFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if _, err := os.Stat(e.walFile); os.IsNotExist(err) {
+		_ = os.MkdirAll(filepath.Dir(e.walFile), os.ModePerm)
+		_, _ = os.Create(e.walFile)
+	}
+
+	file, err := os.OpenFile(e.walFile, os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		slog.Error("Failed to open the WAL file", err)
 		return err

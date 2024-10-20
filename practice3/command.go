@@ -39,7 +39,7 @@ type ApplyCommand struct {
 }
 
 func (cmd *ApplyCommand) Execute(engine *Engine) {
-	err := engine.applyTransaction(cmd.tx)
+	err := engine.applyTransactionAndSave(cmd.tx)
 	cmd.errors <- err
 }
 

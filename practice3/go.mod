@@ -3,6 +3,7 @@ module practice3
 go 1.22.7
 
 require (
+	github.com/gorilla/websocket v1.5.3
 	github.com/paulmach/orb v0.11.1
 	github.com/tidwall/rtree v1.10.0
 )

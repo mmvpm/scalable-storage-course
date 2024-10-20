@@ -16,7 +16,7 @@ func TestSimple(t *testing.T) {
 	mux := http.NewServeMux()
 
 	storage := NewStorage(mux, "test", []string{}, true, "test.json", "wal.txt")
-	router := NewRouter(mux, [][]string{{"test"}}, "../front/dist")
+	router := NewRouter(mux, [][]string{{"test"}}, [][]string{{"test"}}, "../front/dist")
 
 	go storage.Run()
 	go router.Run()
@@ -65,7 +65,7 @@ func TestGet(t *testing.T) {
 	mux := http.NewServeMux()
 
 	storage := NewStorage(mux, "test", []string{}, true, "test.json", "wal.txt")
-	router := NewRouter(mux, [][]string{{"test"}}, "../front/dist")
+	router := NewRouter(mux, [][]string{{"test"}}, [][]string{{"test"}}, "../front/dist")
 
 	go storage.Run()
 	go router.Run()
@@ -112,7 +112,7 @@ func TestInsert(t *testing.T) {
 	mux := http.NewServeMux()
 
 	storage := NewStorage(mux, "test", []string{}, true, "test.json", "wal.txt")
-	router := NewRouter(mux, [][]string{{"test"}}, "../front/dist")
+	router := NewRouter(mux, [][]string{{"test"}}, [][]string{{"test"}}, "../front/dist")
 
 	go storage.Run()
 	go router.Run()
@@ -185,7 +185,7 @@ func TestReplace(t *testing.T) {
 	mux := http.NewServeMux()
 
 	storage := NewStorage(mux, "test", []string{}, true, "test.json", "wal.txt")
-	router := NewRouter(mux, [][]string{{"test"}}, "../front/dist")
+	router := NewRouter(mux, [][]string{{"test"}}, [][]string{{"test"}}, "../front/dist")
 
 	go storage.Run()
 	go router.Run()
@@ -263,7 +263,7 @@ func TestDelete(t *testing.T) {
 	mux := http.NewServeMux()
 
 	storage := NewStorage(mux, "test", []string{}, true, "test.json", "wal.txt")
-	router := NewRouter(mux, [][]string{{"test"}}, "../front/dist")
+	router := NewRouter(mux, [][]string{{"test"}}, [][]string{{"test"}}, "../front/dist")
 
 	go storage.Run()
 	go router.Run()
